@@ -25,12 +25,12 @@ fn conv2d(
 }
 
 #[derive(Debug)]
-pub struct PatchMerging {
+pub struct Downsample {
     conv2d: nn::Conv2d,
     bn2: nn::BatchNorm,
 }
 
-impl PatchMerging {
+impl Downsample {
     fn new(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Self> {
         let conv2d = conv2d(vb.pp("0"), in_planes, out_planes, 1, 0, stride,false)?;
 
@@ -40,7 +40,7 @@ impl PatchMerging {
     }
 }
 
-impl Module for PatchMerging {
+impl Module for Downsample {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
         let xs = self.conv2d.forward(xs)?;
         let xs = self.bn2.forward(&xs)?;
@@ -53,9 +53,9 @@ fn downsample(
     in_planes: usize,
     out_planes: usize,
     stride: usize
-) -> Result<Option<PatchMerging>> {
+) -> Result<Option<Downsample>> {
     if stride != 1 || in_planes != out_planes {
-        Ok(Some(PatchMerging::new(in_planes, out_planes, stride, vb)?))
+        Ok(Some(Downsample::new(in_planes, out_planes, stride, vb)?))
     } else {
         Ok(None)
     }
@@ -67,7 +67,7 @@ pub struct BasicBlock {
     bn1: nn::BatchNorm,
     conv2: nn::Conv2d,
     bn2: nn::BatchNorm,
-    downsample: Option<PatchMerging>,
+    downsample: Option<Downsample>,
 }
 
 impl BasicBlock {
@@ -91,7 +91,7 @@ impl BasicBlock {
     //   )
     pub fn new(vb: VarBuilder, in_planes: usize, out_planes: usize, stride: usize) -> Result<Self> {
         let conv1 = conv2d(vb.pp("conv1"), in_planes, out_planes, 3, 1, stride,false)?;
-        let bn1 = nn::batch_norm(out_planes, BatchNormConfig { eps: 1e-5, remove_mean: false, affine: true }, vb.pp("bn1"))?;
+        let bn1 = nn::batch_norm(out_planes, BatchNormConfig { eps: 1e-05, remove_mean: false, affine: true }, vb.pp("bn1"))?;
         let conv2 = conv2d(vb.pp("conv2"), out_planes, out_planes, 3, 1, 1,false)?;
         let bn2 = nn::batch_norm(out_planes, BatchNormConfig { eps: 1e-5, remove_mean: false, affine: true }, vb.pp("bn2"))?;
         let downsample = downsample(vb.pp("downsample"), in_planes, out_planes, stride)?;
@@ -108,6 +108,7 @@ impl Module for BasicBlock {
             .relu()?
             .apply(&self.conv2)?
             .apply(&self.bn2)?;
+        // println!("{ys}");
         if let Some(downsample) = &self.downsample {
             (xs.apply(downsample) + ys)?.relu()
         } else {
@@ -217,12 +218,15 @@ impl Module for ResNet {
         let xs = xs.relu()?;
         //nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         //
-        let xs = xs.max_pool2d_with_stride(3, 2)?;
-        println!("{xs}");
+        let xs = xs.pad_with_zeros(D::Minus2, 1, 1)?;
+        let xs = xs.max_pool2d((3,2))?;
         let xs=xs.apply(&self.layer1)?;
+        println!("{xs}");
+
         let xs=xs.apply(&self.layer2)?;
         let xs=xs.apply(&self.layer3)?;
         let xs = xs.apply(&self.layer4)?;
+        
         // equivalent to adaptive_avg_pool2d([1, 1]) //avgpool
         let xs = xs.mean_keepdim(D::Minus2)?.mean_keepdim(D::Minus1)?; //[1, 512, 1, 1]
         let xs = xs.flatten_from(1)?; //[1,512]
@@ -278,7 +282,7 @@ pub struct BottleneckBlock {
     bn2: nn::BatchNorm,
     conv3: Conv2d,
     bn3: nn::BatchNorm,
-    downsample: Option<PatchMerging>,
+    downsample: Option<Downsample>,
 }
 
 impl BottleneckBlock {
