@@ -2,3 +2,4 @@
 /Cargo.lock
 /**/*.pt
 /**/*.safetensors
+/.idea/
