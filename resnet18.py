@@ -2,6 +2,7 @@ import torch
 from torchvision import models
 from PIL import Image
 from torchvision import transforms
+from torchvision.models import ResNet18_Weights
 
 if __name__ == "__main__":
     input_image = Image.open("/Users/kingzcheung/rust/candle-resnet/testdata/69020001.jpg")
@@ -14,7 +15,7 @@ if __name__ == "__main__":
     input_tensor = preprocess(input_image)
     input_batch = input_tensor.unsqueeze(0) 
 
-    model = models.resnet18(pretrained=True)
+    model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
     model.eval()
 
     if torch.cuda.is_available():

@@ -1007,11 +1007,11 @@ pub const CLASSES: [&str; 1000] = [
 
 #[test]
 fn test_resnet() -> candle_core::Result<()> {
-    let model_file = "/Users/kingzcheung/rust/candle-resnet/testdata/resnet18.safetensors";
+    let model_file = "./testdata/resnet18.safetensors";
     let device = candle_core::Device::Cpu;
     let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_file], DType::F32, &device)? };
 
-    let image = load_image224("/Users/kingzcheung/rust/candle-resnet/testdata/69020001.jpg")?;
+    let image = load_image224("./testdata/69020001.jpg")?;
 
     let model = resnet18(vb, 1000)?;
     let image = image.unsqueeze(0)?;
