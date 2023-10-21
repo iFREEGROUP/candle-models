@@ -1,6 +1,6 @@
 use candle_core::{ Result, D };
 use candle_nn as nn;
-use nn::{ Module, VarBuilder, Conv2d, Linear, BatchNormConfig, batch_norm, Func };
+use nn::{ Module, VarBuilder, Conv2d, Linear, batch_norm, Func, BatchNorm };
 
 #[derive(Debug)]
 pub struct Sequential<T: Module> {
@@ -56,10 +56,13 @@ fn conv2d(
     candle_nn::conv2d_no_bias(in_planes, out_planes, ksize, conv2d_cfg, vb)
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Downsample {
     conv2d: nn::Conv2d,
     bn2: nn::BatchNorm,
+    in_planes: usize,
+    out_planes: usize,
+    stride: usize,
 }
 
 impl Downsample {
@@ -67,19 +70,45 @@ impl Downsample {
         let conv2d = conv2d(in_planes, out_planes, 1, 0, stride, vb.pp(0))?;
 
         let bn2 = nn::batch_norm(out_planes, 1e-5, vb.pp(1))?;
-        Ok(Self { conv2d, bn2 })
+        Ok(Self { conv2d, bn2, in_planes, out_planes, stride })
     }
 }
+
 
 impl Module for Downsample {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
-        let xs = self.conv2d.forward(xs)?;
-        let xs = self.bn2.forward(&xs)?;
-        Ok(xs)
+        if self.stride != 1 || self.in_planes != self.out_planes {
+            xs.apply(&self.conv2d)?.apply(&self.bn2)
+        } else {
+            Ok(xs.clone())
+        }
     }
 }
 
-#[derive(Debug)]
+// fn downsample(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Func> {
+//     if stride != 1 || in_planes != out_planes {
+//         let conv = conv2d(in_planes, out_planes, 1, 0, stride, vb.pp(0))?;
+//         let bn = batch_norm(out_planes, 1e-5, vb.pp(1))?;
+//         Ok(Func::new(move |xs| xs.apply(&conv)?.apply(&bn)))
+//     } else {
+//         Ok(Func::new(|xs| Ok(xs.clone())))
+//     }
+// }
+
+fn downsample(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Option<Downsample>> {
+    if stride != 1 || in_planes != out_planes {
+        let conv = conv2d(in_planes, out_planes, 1, 0, stride, vb.pp(0))?;
+        let bn = batch_norm(out_planes, 1e-5, vb.pp(1))?;
+        Ok(
+            Some(Downsample{ conv2d: conv, bn2: bn, in_planes, out_planes, stride})
+        )
+    } else {
+        Ok(None)
+    }
+}
+
+
+#[derive(Debug,Clone)]
 pub struct BasicBlock {
     conv1: nn::Conv2d,
     bn1: nn::BatchNorm,
@@ -95,11 +124,7 @@ impl BasicBlock {
         let bn1 = batch_norm(out_planes, 1e-5, vb.pp("bn1"))?;
         let conv2 = conv2d(out_planes, out_planes, 3, 1, 1, vb.pp("conv2"))?;
         let bn2 = batch_norm(out_planes, 1e-5, vb.pp("bn2"))?;
-        let downsample = if stride != 1 || in_planes != out_planes {
-            Some(Downsample::new(in_planes, out_planes, stride, vb.pp("downsample"))?)
-        } else {
-            None
-        };
+        let downsample = downsample(in_planes, out_planes, stride, vb.pp("downsample"))?;
 
         Ok(Self { conv1, bn1, conv2, bn2, downsample })
     }
@@ -107,44 +132,35 @@ impl BasicBlock {
 
 impl Module for BasicBlock {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
-        let ys = xs.apply(&self.conv1)?;
-        println!("conv1:: {ys}");
-        let ys = ys.apply(&self.bn1)?;
-        let ys = ys.relu()?;
-        let ys = ys.apply(&self.conv2)?;
-        let ys = ys.apply(&self.bn2)?;
+        let ys = xs
+            .apply(&self.conv1)?
+            .apply(&self.bn1)?
+            .relu()?
+            .apply(&self.conv2)?
+            .apply(&self.bn2)?;
+
+        // (xs.apply(&self.downsample) + ys)?.relu()
         if let Some(downsample) = &self.downsample {
-            (ys + xs.apply(downsample))?.relu()
+            (xs.apply(downsample) + ys)?.relu()
         } else {
-            Ok(ys.clone())
+            (ys + xs)?.relu()
         }
     }
 }
-fn downsample(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Func> {
-    if stride != 1 || in_planes != out_planes {
-        let conv = conv2d(in_planes, out_planes, 1, 0, stride, vb.pp(0))?;
-        let bn = batch_norm(out_planes, 1e-5, vb.pp(1))?;
-        Ok(Func::new(move |xs| xs.apply(&conv)?.apply(&bn)))
-    } else {
-        Ok(Func::new(|xs| Ok(xs.clone())))
-    }
-}
-fn basic_block(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Func> {
-    let conv1 = conv2d(in_planes, out_planes, 3, 1, stride, vb.pp("conv1"))?;
-    let bn1 = batch_norm(out_planes, 1e-5, vb.pp("bn1"))?;
-    let conv2 = conv2d(out_planes, out_planes, 3, 1, 1, vb.pp("conv2"))?;
-    let bn2 = batch_norm(out_planes, 1e-5, vb.pp("bn2"))?;
-    let downsample = downsample(in_planes, out_planes, stride, vb.pp("downsample"))?;
-    Ok(Func::new(move |xs| {
-        let ys = xs
-            .apply(&conv1)?
-            .apply(&bn1)?
-            .relu()?
-            .apply(&conv2)?
-            .apply(&bn2)?;
-        (xs.apply(&downsample)? + ys)?.relu()
-    }))
-}
+
+// fn basic_block(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Func> {
+//     let conv1 = conv2d(in_planes, out_planes, 3, 1, stride, vb.pp("conv1"))?;
+//     let bn1 = batch_norm(out_planes, 1e-5, vb.pp("bn1"))?;
+//     let conv2 = conv2d(out_planes, out_planes, 3, 1, 1, vb.pp("conv2"))?;
+//     let bn2 = batch_norm(out_planes, 1e-5, vb.pp("bn2"))?;
+//     let downsample = downsample(in_planes, out_planes, stride, vb.pp("downsample"))?;
+//     Ok(
+//         Func::new(move |xs| {
+//             let ys = xs.apply(&conv1)?.apply(&bn1)?.relu()?.apply(&conv2)?.apply(&bn2)?;
+//             (xs.apply(&downsample)? + ys)?.relu()
+//         })
+//     )
+// }
 
 fn basic_layer(
     vb: VarBuilder,
@@ -152,32 +168,32 @@ fn basic_layer(
     out_planes: usize,
     stride: usize,
     cnt: usize
-) -> Result<Sequential<Func>> {
+) -> Result<Sequential<BasicBlock>> {
     let mut layers = seq(cnt);
     for block_index in 0..cnt {
         let l_in = if block_index == 0 { in_planes } else { out_planes };
         let stride = if block_index == 0 { stride } else { 1 };
-        let layer = basic_block(l_in, out_planes, stride, vb.pp(block_index))?;
-        // let layer = BasicBlock::new(vb.pp(block_index.to_string()), l_in, out_planes, stride)?;
+        // let layer = basic_block(l_in, out_planes, stride, vb.pp(block_index))?;
+        let layer = BasicBlock::new(vb.pp(block_index.to_string()), l_in, out_planes, stride)?;
         layers.push(layer);
     }
     Ok(layers)
 }
 
 #[derive(Debug)]
-pub struct ResNet<'a> {
+pub struct ResNet {
     conv1: Conv2d,
     bn1: nn::BatchNorm,
-    layer1: Sequential<Func<'a>>,
-    layer2: Sequential<Func<'a>>,
-    layer3: Sequential<Func<'a>>,
-    layer4: Sequential<Func<'a>>,
+    layer1: Sequential<BasicBlock>,
+    layer2: Sequential<BasicBlock>,
+    layer3: Sequential<BasicBlock>,
+    layer4: Sequential<BasicBlock>,
     linear: Option<Linear>,
 }
 
-impl<'a> ResNet<'a> {
+impl ResNet {
     pub fn new(
-        vb: VarBuilder<'a>,
+        vb: VarBuilder,
         nclasses: Option<usize>,
         c1: usize,
         c2: usize,
@@ -209,7 +225,7 @@ impl<'a> ResNet<'a> {
     }
 }
 
-impl<'a> Module for ResNet<'a> {
+impl Module for ResNet {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
         let xs = xs.apply(&self.conv1)?;
         let xs = xs.apply(&self.bn1)?;
@@ -225,8 +241,8 @@ impl<'a> Module for ResNet<'a> {
         let xs = xs.apply(&self.layer4)?;
 
         // Equivalent to adaptive_avg_pool2d([1, 1]) -> squeeze(-1) -> squeeze(-1)
-        let xs = xs.mean(D::Minus1)?; 
-        let xs = xs.mean(D::Minus1)?; 
+        let xs = xs.mean(D::Minus1)?;
+        let xs = xs.mean(D::Minus1)?;
 
         match &self.linear {
             Some(fc) => xs.apply(fc),
