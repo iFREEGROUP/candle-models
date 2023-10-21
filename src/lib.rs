@@ -6,7 +6,7 @@ use candle_core::{ Result, D };
 use candle_nn as nn;
 use nn::{ Module, VarBuilder, Conv2d, Linear, batch_norm };
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Sequential<T: Module> {
     layers: Vec<T>,
 }
@@ -151,7 +151,7 @@ fn basic_layer(
     Ok(layers)
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct ResNet {
     conv1: Conv2d,
     bn1: nn::BatchNorm,
@@ -252,7 +252,7 @@ pub fn resnet34_no_final_layer(vb: VarBuilder) -> Result<ResNet> {
 }
 
 // Bottleneck versions for ResNet 50, 101, and 152.
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct BottleneckBlock {
     conv1: Conv2d,
     bn1: nn::BatchNorm,
@@ -331,7 +331,7 @@ fn bottleneck_layer(
     
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct BottleneckResnet {
     conv1: Conv2d,
     bn1: nn::BatchNorm,
