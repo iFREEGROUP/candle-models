@@ -33,7 +33,7 @@ fn main() -> candle_core::Result<()> {
     let device = candle_core::Device::Cpu;
     let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_file], DType::F32, &device)? };
 
-    let image = load_image224("./testdata/69020001.jpg")?;
+    let image = load_image224("./testdata/mouse.jpg")?;
 
     let model = resnet18(vb, 1000)?;
     let image = image.unsqueeze(0)?;
@@ -50,4 +50,14 @@ fn main() -> candle_core::Result<()> {
     }
     Ok(())
 }
+```
+
+结果:
+```bash
+mouse, computer mouse   : 90.06%
+punching bag, punch bag, punching ball, punchball: 4.47%
+joystick                : 1.77%
+radio, wireless         : 0.45%
+vacuum, vacuum cleaner  : 0.20%
+test test_resnet18 ... ok
 ```
