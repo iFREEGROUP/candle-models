@@ -5,7 +5,7 @@ from torchvision import transforms
 from torchvision.models import ResNet18_Weights
 
 if __name__ == "__main__":
-    input_image = Image.open("/Users/kingzcheung/rust/candle-resnet/testdata/69020001.jpg")
+    input_image = Image.open("./testdata/69020001.jpg")
     preprocess = transforms.Compose([
         transforms.Resize(256),
         transforms.CenterCrop(224),
