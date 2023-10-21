@@ -296,8 +296,8 @@ impl BottleneckBlock {
         let conv2 = conv2d(out_planes, out_planes, 3, 1, stride, vb.pp("conv2"))?;
         let bn2 = nn::batch_norm(out_planes, 1e-5, vb.pp("bn2"))?;
 
-        let conv3 = conv2d(out_planes, out_planes, 1, 0, 1, vb.pp("conv3"))?;
-        let bn3 = nn::batch_norm(out_planes, 1e-5, vb.pp("bn3"))?;
+        let conv3 = conv2d(out_planes, e_dim, 1, 0, 1, vb.pp("conv3"))?;
+        let bn3 = nn::batch_norm(e_dim, 1e-5, vb.pp("bn3"))?;
         let downsample = downsample(in_planes, e_dim, stride, vb.pp("downsample"))?;
         Ok(Self {
             conv1,
@@ -397,18 +397,23 @@ impl BottleneckResnet {
 
 impl Module for BottleneckResnet {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
-        let xs = xs
-            .apply(&self.conv1)?
-            .apply(&self.bn1)?
-            .relu()?
-            .max_pool2d_with_stride(3, 2)?
-            .apply(&self.layer1)?
-            .apply(&self.layer2)?
-            .apply(&self.layer3)?
-            .apply(&self.layer4)?;
-        // equivalent to adaptive_avg_pool2d([1, 1])
-        let xs = xs.mean_keepdim(D::Minus2)?.mean_keepdim(D::Minus1)?;
-        let xs = xs.flatten_to(1)?;
+        let xs = xs.apply(&self.conv1)?;
+        let xs = xs.apply(&self.bn1)?;
+        let xs = xs.relu()?;
+
+        let xs = xs.pad_with_same(D::Minus1, 1, 1)?;
+        let xs = xs.pad_with_same(D::Minus2, 1, 1)?;
+        let xs = xs.max_pool2d_with_stride(3, 2)?;
+
+        let xs = xs.apply(&self.layer1)?;
+        let xs = xs.apply(&self.layer2)?;
+        let xs = xs.apply(&self.layer3)?;
+        let xs = xs.apply(&self.layer4)?;
+
+        // Equivalent to adaptive_avg_pool2d([1, 1]) -> squeeze(-1) -> squeeze(-1)
+        let xs = xs.mean(D::Minus1)?;
+        let xs = xs.mean(D::Minus1)?;
+
         match &self.linear {
             Some(fc) => xs.apply(fc),
             None => Ok(xs),
