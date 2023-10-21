@@ -1,6 +1,6 @@
 use candle_core::{ Result, D };
 use candle_nn as nn;
-use nn::{ Module, VarBuilder, Conv2d, Linear, batch_norm, Func, BatchNorm };
+use nn::{ Module, VarBuilder, Conv2d, Linear, batch_norm };
 
 #[derive(Debug)]
 pub struct Sequential<T: Module> {
@@ -64,16 +64,6 @@ pub struct Downsample {
     out_planes: usize,
     stride: usize,
 }
-
-impl Downsample {
-    fn new(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Self> {
-        let conv2d = conv2d(in_planes, out_planes, 1, 0, stride, vb.pp(0))?;
-
-        let bn2 = nn::batch_norm(out_planes, 1e-5, vb.pp(1))?;
-        Ok(Self { conv2d, bn2, in_planes, out_planes, stride })
-    }
-}
-
 
 impl Module for Downsample {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
@@ -289,7 +279,7 @@ pub struct BottleneckBlock {
     bn2: nn::BatchNorm,
     conv3: Conv2d,
     bn3: nn::BatchNorm,
-    downsample: Downsample,
+    downsample: Option<Downsample>,
 }
 
 impl BottleneckBlock {
@@ -308,7 +298,7 @@ impl BottleneckBlock {
 
         let conv3 = conv2d(out_planes, out_planes, 1, 0, 1, vb.pp("conv3"))?;
         let bn3 = nn::batch_norm(out_planes, 1e-5, vb.pp("bn3"))?;
-        let downsample = Downsample::new(in_planes, e_dim, stride, vb.pp("downsample"))?;
+        let downsample = downsample(in_planes, e_dim, stride, vb.pp("downsample"))?;
         Ok(Self {
             conv1,
             bn1,
@@ -333,7 +323,11 @@ impl Module for BottleneckBlock {
             .apply(&self.conv3)?
             .apply(&self.bn3)?;
 
-        (xs.apply(&self.downsample) + ys)?.relu()
+        if let Some(downsample) = &self.downsample {
+            (xs.apply(downsample) + ys)?.relu()
+        } else {
+            (ys + xs)?.relu()
+        }
     }
 }
 
@@ -344,14 +338,16 @@ fn bottleneck_layer(
     stride: usize,
     cnt: usize
 ) -> Result<Sequential<BottleneckBlock>> {
-    let mut blocks = seq(cnt);
-    blocks.add(BottleneckBlock::new(vb.pp("0"), in_planes, out_planes, stride, 4)?);
-    for block_index in 1..cnt {
-        blocks.add(
-            BottleneckBlock::new(vb.pp(block_index.to_string()), 4 * out_planes, out_planes, 1, 4)?
+    let mut layers = seq(cnt);
+    for index in 0..cnt {
+        let l_in = if index == 0 { in_planes } else { 4 * out_planes };
+        let stride = if index == 0 { stride } else { 1 };
+        layers.push(
+            BottleneckBlock::new(vb.pp(index), l_in, out_planes, stride, 4)?
         );
     }
-    Ok(blocks)
+    Ok(layers)
+    
 }
 
 #[derive(Debug)]
