@@ -1,3 +1,7 @@
+//! 参考了以下两个实现 tch (libtorch) 和 pytorch
+//! https://github.com/LaurentMazare/tch-rs/blob/main/src/vision/resnet.rs
+//! https://github.com/pytorch/vision/blob/0d75d9e5516f446c9c0ef93bd4ed9fea13992d06/torchvision/models/resnet.py
+
 use candle_core::{ Result, D };
 use candle_nn as nn;
 use nn::{ Module, VarBuilder, Conv2d, Linear, batch_norm };
@@ -75,15 +79,6 @@ impl Module for Downsample {
     }
 }
 
-// fn downsample(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Func> {
-//     if stride != 1 || in_planes != out_planes {
-//         let conv = conv2d(in_planes, out_planes, 1, 0, stride, vb.pp(0))?;
-//         let bn = batch_norm(out_planes, 1e-5, vb.pp(1))?;
-//         Ok(Func::new(move |xs| xs.apply(&conv)?.apply(&bn)))
-//     } else {
-//         Ok(Func::new(|xs| Ok(xs.clone())))
-//     }
-// }
 
 fn downsample(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Option<Downsample>> {
     if stride != 1 || in_planes != out_planes {
@@ -137,20 +132,6 @@ impl Module for BasicBlock {
         }
     }
 }
-
-// fn basic_block(in_planes: usize, out_planes: usize, stride: usize, vb: VarBuilder) -> Result<Func> {
-//     let conv1 = conv2d(in_planes, out_planes, 3, 1, stride, vb.pp("conv1"))?;
-//     let bn1 = batch_norm(out_planes, 1e-5, vb.pp("bn1"))?;
-//     let conv2 = conv2d(out_planes, out_planes, 3, 1, 1, vb.pp("conv2"))?;
-//     let bn2 = batch_norm(out_planes, 1e-5, vb.pp("bn2"))?;
-//     let downsample = downsample(in_planes, out_planes, stride, vb.pp("downsample"))?;
-//     Ok(
-//         Func::new(move |xs| {
-//             let ys = xs.apply(&conv1)?.apply(&bn1)?.relu()?.apply(&conv2)?.apply(&bn2)?;
-//             (xs.apply(&downsample)? + ys)?.relu()
-//         })
-//     )
-// }
 
 fn basic_layer(
     vb: VarBuilder,
