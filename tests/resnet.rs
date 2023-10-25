@@ -1,6 +1,6 @@
 use candle_core::{ DType, Tensor, Device, Module, D, IndexOp };
 use candle_nn::VarBuilder;
-use candle_resnet::{resnet18, resnet50};
+use candle_resnet::resnet::{resnet18, resnet50};
 
 use crate::imagenet::CLASSES;
 mod imagenet;
