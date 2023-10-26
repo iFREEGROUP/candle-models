@@ -1,5 +1,10 @@
-# candle-resnet
-caddle 版本 resnet 结构实现, 支持 resnet18, resnet34, resnet50, resnet101, resnet152 版本。
+# candle-models
+caddle 版本经典CV模型结构实现, 支持 resnet、mobilenetv2。
+
+### 特性
+支持以下模型
+1. resnet系列: resnet18、resnet34、resnet50、resnet101、resnet152
+2. mobilenet系列: mobilenetv2
 
 ### 导出模型
 
