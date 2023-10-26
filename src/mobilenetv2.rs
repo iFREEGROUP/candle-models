@@ -4,7 +4,7 @@
 use candle_core::{ Result, Module, Tensor, D };
 use candle_nn::{ VarBuilder, Conv2d, BatchNorm, conv2d_no_bias, batch_norm, Linear, ops::dropout };
 
-use crate::sequential::{ Sequential, seq };
+use crate::{ sequential::seq, sequential::Sequential };
 
 /// Conv2D + BatchNorm2D + ReLU6
 #[derive(Debug, Clone)]
@@ -38,19 +38,18 @@ impl Conv2dNormActivation {
 
 impl Module for Conv2dNormActivation {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
-        xs.apply(&self.conv2d)?.apply(&self.batch_norm2d)?.relu()?.clamp(0.0, 6.0)
+        
+        let ys = xs.apply(&self.conv2d)?;
+        ys
+        .apply(&self.batch_norm2d)?
+        .relu()?
+        .clamp(0.0, 6.0)
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct InvertedResidual {
-    cbr1: Option<Conv2dNormActivation>,
-    cbr2: Conv2dNormActivation,
-    conv2d: Conv2d,
-    batch_norm2d: BatchNorm,
-    in_channels: usize,
-    out_channels: usize,
-    stride: usize,
+#[derive(Debug,Clone)]
+struct InvertedResidual{
+    conv: ConvSequential
 }
 
 impl InvertedResidual {
@@ -59,11 +58,40 @@ impl InvertedResidual {
         in_channels: usize,
         out_channels: usize,
         stride: usize,
-        er: usize
+        expand_ratio: usize
     ) -> Result<Self> {
-        let c_hidden = er * in_channels;
+        Ok(
+            Self { conv: ConvSequential::new(vb.pp("conv"), in_channels, out_channels, stride, expand_ratio)? }
+        )
+    }
+}
+
+impl Module for InvertedResidual{
+    fn forward(&self, xs: &Tensor) -> Result<Tensor> {
+        xs.apply(&self.conv)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ConvSequential {
+    cbr1: Option<Conv2dNormActivation>,
+    cbr2: Conv2dNormActivation,
+    conv2d: Conv2d,
+    batch_norm2d: BatchNorm,
+    use_res_connect: bool,
+}
+
+impl ConvSequential {
+    fn new(
+        vb: VarBuilder,
+        in_channels: usize,
+        out_channels: usize,
+        stride: usize,
+        expand_ratio: usize
+    ) -> Result<Self> {
+        let c_hidden = expand_ratio * in_channels;
         let mut id = 0;
-        let cbr1 = if er != 1 {
+        let cbr1 = if expand_ratio != 1 {
             // conv = conv.add(cbr(&p / id, c_in, c_hidden, 1, 1, 1));
             let cbr = Conv2dNormActivation::new(vb.pp(id), in_channels, c_hidden, 1, 1, 1)?;
             id += 1;
@@ -74,27 +102,23 @@ impl InvertedResidual {
         let cbr2 = Conv2dNormActivation::new(vb.pp(id), c_hidden, c_hidden, 3, stride, c_hidden)?;
         let cfg = candle_nn::Conv2dConfig {
             stride: 1,
-            padding: 1,
-            groups: 32,
             ..Default::default()
         };
-        let conv2d = conv2d_no_bias(c_hidden, out_channels, 3, cfg, vb.pp(id + 1))?;
+        let conv2d = conv2d_no_bias(c_hidden, out_channels, 1, cfg, vb.pp(id + 1))?;
 
         let batch_norm2d = batch_norm(out_channels, 1e-5, vb.pp(id + 2))?;
-
+        let use_res_connect = stride == 1 && in_channels == out_channels;
         Ok(Self {
             cbr1,
             cbr2,
             conv2d,
             batch_norm2d,
-            in_channels,
-            out_channels,
-            stride,
+            use_res_connect,
         })
     }
 }
 
-impl Module for InvertedResidual {
+impl Module for ConvSequential {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
         let mut ys = xs.clone();
         if let Some(cbr1) = &self.cbr1 {
@@ -103,7 +127,7 @@ impl Module for InvertedResidual {
 
         let ys = ys.apply(&self.cbr2)?.apply(&self.conv2d)?.apply(&self.batch_norm2d)?;
 
-        if self.stride == 1 && self.in_channels == self.out_channels {
+        if self.use_res_connect {
             xs + ys
         } else {
             Ok(ys)
@@ -112,6 +136,7 @@ impl Module for InvertedResidual {
 }
 
 const INVERTED_RESIDUAL_SETTINGS: [(usize, usize, usize, usize); 7] = [
+    // (expand_ratio, c_out, n, stride)
     (1, 16, 1, 1),
     (6, 24, 2, 2),
     (6, 32, 3, 2),
@@ -143,7 +168,7 @@ impl Features {
                 layer_id += 1;
             }
         }
-        let cbr2 = Conv2dNormActivation::new(vb.pp(0), 3, c_in, 3, 2, 1)?;
+        let cbr2 = Conv2dNormActivation::new(vb.pp(layer_id),  c_in,1280, 1, 1, 1)?;
 
         Ok(Self {
             cbr1,
@@ -155,20 +180,22 @@ impl Features {
 
 impl Module for Features {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
-        xs.apply(&self.cbr1)?.apply(&self.invs)?.apply(&self.cbr2)
+        let ys = xs.apply(&self.cbr1)?;
+        
+        let ys = ys.apply(&self.invs)?;
+        ys.apply(&self.cbr2)
     }
 }
 
-
-#[derive(Debug,Clone)]
-struct Classifier{
-    linear:Linear,
+#[derive(Debug, Clone)]
+struct Classifier {
+    linear: Linear,
 }
 
 impl Classifier {
-    fn new(vb:VarBuilder,nclasses:usize) ->Result<Self> {
-        let linear = candle_nn::linear(1280, nclasses, vb.pp(0))?;
-        Ok(Self{linear})
+    fn new(vb: VarBuilder, nclasses: usize) -> Result<Self> {
+        let linear = candle_nn::linear(1280, nclasses, vb.pp(1))?;
+        Ok(Self { linear })
     }
 }
 
@@ -186,7 +213,7 @@ pub struct Mobilenetv2 {
 }
 
 impl Mobilenetv2 {
-    pub fn new(vb: VarBuilder,nclasses:usize) -> Result<Self> {
+    pub fn new(vb: VarBuilder, nclasses: usize) -> Result<Self> {
         let features = Features::new(vb.pp("features"))?;
         let classifier = Classifier::new(vb.pp("classifier"), nclasses)?;
         Ok(Self { features, classifier })
@@ -195,10 +222,6 @@ impl Mobilenetv2 {
 
 impl Module for Mobilenetv2 {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
-        xs.apply(&self.features)?
-        .mean(D::Minus1)?
-        .mean(D::Minus1)?
-        .apply(&self.classifier)
-
+        xs.apply(&self.features)?.mean(D::Minus1)?.mean(D::Minus1)?.apply(&self.classifier)
     }
 }
