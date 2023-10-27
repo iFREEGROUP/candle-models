@@ -137,8 +137,8 @@ impl Version {
     }
 
     pub fn v1_1(vb: VarBuilder) -> Result<Self> {
-        let final_conv_cfg = Conv2dConfig { stride: 1, ..Default::default() };
-        let conv2d = conv2d(3, 64, 3, final_conv_cfg, vb.pp("0"))?;
+        let initial_conv_cfg = Conv2dConfig { stride: 2, ..Default::default() };
+        let conv2d = conv2d(3, 64, 3, initial_conv_cfg, vb.pp("0"))?;
         let fire3 = Fire::new(vb.pp("3"), 64, 16, 64, 64)?;
         let fire4 = Fire::new(vb.pp("4"), 128, 16, 64, 64)?;
         let fire6 = Fire::new(vb.pp("6"), 128, 32, 128, 128)?;
