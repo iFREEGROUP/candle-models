@@ -6,10 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-image = "0.24"
+image = "0.25.1"
 [dependencies.candle-nn]
-git="ssh://git@github.com/huggingface/candle.git"
-branch = "main"
+version = "0.4.1"
+# git="ssh://git@github.com/huggingface/candle.git"
+# branch = "main"
 [dependencies.candle-core]
-git = "ssh://git@github.com/huggingface/candle.git"
-branch = "main"
+version = "0.4.1"
+# git = "ssh://git@github.com/huggingface/candle.git"
+# branch = "main"

@@ -41,7 +41,7 @@ impl Module for Conv2dNormActivation {
         
         let ys = xs.apply(&self.conv2d)?;
         ys
-        .apply(&self.batch_norm2d)?
+        .apply_t(&self.batch_norm2d,false)?
         .relu()?
         .clamp(0.0, 6.0)
     }
@@ -125,7 +125,7 @@ impl Module for ConvSequential {
             ys = ys.apply(cbr1)?;
         }
 
-        let ys = ys.apply(&self.cbr2)?.apply(&self.conv2d)?.apply(&self.batch_norm2d)?;
+        let ys = ys.apply(&self.cbr2)?.apply(&self.conv2d)?.apply_t(&self.batch_norm2d, false)?;
 
         if self.use_res_connect {
             xs + ys

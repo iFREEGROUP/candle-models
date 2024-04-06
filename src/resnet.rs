@@ -37,7 +37,7 @@ pub struct Downsample {
 impl Module for Downsample {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
         if self.stride != 1 || self.in_planes != self.out_planes {
-            xs.apply(&self.conv2d)?.apply(&self.bn2)
+            xs.apply(&self.conv2d)?.apply_t(&self.bn2,false)
         } else {
             Ok(xs.clone())
         }
@@ -84,10 +84,10 @@ impl Module for BasicBlock {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
         let ys = xs
             .apply(&self.conv1)?
-            .apply(&self.bn1)?
+            .apply_t(&self.bn1,false)?
             .relu()?
             .apply(&self.conv2)?
-            .apply(&self.bn2)?;
+            .apply_t(&self.bn2,false)?;
 
         // (xs.apply(&self.downsample) + ys)?.relu()
         if let Some(downsample) = &self.downsample {
@@ -164,7 +164,7 @@ impl ResNet {
 impl Module for ResNet {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
         let xs = xs.apply(&self.conv1)?;
-        let xs = xs.apply(&self.bn1)?;
+        let xs = xs.apply_t(&self.bn1,false)?;
         let xs = xs.relu()?;
 
         let xs = xs.pad_with_same(D::Minus1, 1, 1)?;
@@ -261,13 +261,13 @@ impl Module for BottleneckBlock {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
         let ys = xs
             .apply(&self.conv1)?
-            .apply(&self.bn1)?
+            .apply_t(&self.bn1,false)?
             .relu()?
             .apply(&self.conv2)?
-            .apply(&self.bn2)?
+            .apply_t(&self.bn2,false)?
             .relu()?
             .apply(&self.conv3)?
-            .apply(&self.bn3)?;
+            .apply_t(&self.bn3,false)?;
 
         if let Some(downsample) = &self.downsample {
             (xs.apply(downsample) + ys)?.relu()
@@ -344,7 +344,7 @@ impl BottleneckResnet {
 impl Module for BottleneckResnet {
     fn forward(&self, xs: &candle_core::Tensor) -> Result<candle_core::Tensor> {
         let xs = xs.apply(&self.conv1)?;
-        let xs = xs.apply(&self.bn1)?;
+        let xs = xs.apply_t(&self.bn1,false)?;
         let xs = xs.relu()?;
 
         let xs = xs.pad_with_same(D::Minus1, 1, 1)?;
