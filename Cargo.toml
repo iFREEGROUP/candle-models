@@ -1,17 +1,17 @@
 [package]
 name = "candle-resnet"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-image = "0.25.1"
+image = "0.25.2"
 [dependencies.candle-nn]
-version = "0.4.1"
+version = "0.7.2"
 # git="ssh://git@github.com/huggingface/candle.git"
 # branch = "main"
 [dependencies.candle-core]
-version = "0.4.1"
+version = "0.7.2"
 # git = "ssh://git@github.com/huggingface/candle.git"
 # branch = "main"
